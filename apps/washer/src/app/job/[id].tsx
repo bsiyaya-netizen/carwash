@@ -69,14 +69,15 @@ export default function Job() {
         <Text style={{ fontWeight: '600', fontSize: 16 }}>{b.customer.name}</Text>
         <Muted>{b.vehicle.color} {b.vehicle.make} {b.vehicle.model} · {b.vehicle.plate}</Muted>
         <Muted>{b.address}</Muted>
+        {b.notes ? <Muted>Note: {b.notes}</Muted> : null}
         <Muted>{when(b.scheduled_at)}</Muted>
         <View style={[styles.row, { marginTop: 8 }]}>
-          <Text style={{ fontWeight: '600' }}>{b.payment_method === 'cash' ? 'Collect cash' : 'Paid by card'}</Text>
+          <Text style={{ fontWeight: '600' }}>{b.payment_method === 'cash' ? 'Collect cash' : b.payment_method === 'membership' ? 'Membership wash' : 'Paid by card'}</Text>
           <Text style={{ fontWeight: '600' }}>{money(b.total_cents)}</Text>
         </View>
         <View style={{ flexDirection: 'row', gap: 8, marginTop: 8 }}>
           <Button title="Navigate" variant="secondary" onPress={navigate} style={{ flex: 1 }} />
-          <Button title="Call" variant="secondary" onPress={() => Linking.openURL(`tel:${b.customer.phone}`)} style={{ flex: 1 }} />
+          {b.customer.phone ? <Button title="Call" variant="secondary" onPress={() => Linking.openURL(`tel:${b.customer.phone}`)} style={{ flex: 1 }} /> : null}
         </View>
       </Card>
 

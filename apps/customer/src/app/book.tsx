@@ -4,16 +4,23 @@ import { useEffect, useState } from 'react';
 import { Alert, ScrollView, Text, View } from 'react-native';
 import MapView, { Marker, type LatLng } from 'react-native-maps';
 import { api } from '../lib/api';
+import { useAuth } from '../lib/auth';
 import { money, when } from '../lib/format';
-import type { Package, Vehicle } from '../lib/types';
+import { useClientConfig, usePaymentSheet } from '../lib/payments';
+import type { Hub, Package, Quote, Vehicle } from '../lib/types';
 import { Button, Card, Chip, colors, H, Input, Muted, styles } from '../lib/ui';
-
-interface Quote { subtotalCents: number; discountCents: number; totalCents: number; durationMin: number }
 
 const DEFAULT_PIN = { latitude: -26.2041, longitude: 28.0473 }; // Johannesburg, until we have the user's location
 
 export default function Book() {
   const router = useRouter();
+  const { user, refresh } = useAuth();
+  const { pointValueCents } = useClientConfig();
+  const pay = usePaymentSheet();
+  const [hubs, setHubs] = useState<Hub[]>([]);
+  const [where, setWhere] = useState<'mobile' | 'hub'>('mobile');
+  const [hubId, setHubId] = useState<string>();
+  const [usePoints, setUsePoints] = useState(false);
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [packages, setPackages] = useState<Package[]>([]);
   const [slots, setSlots] = useState<string[]>([]);
@@ -36,11 +43,14 @@ export default function Book() {
     api<Vehicle[]>('/vehicles').then((v) => { setVehicles(v); setVehicleId(v[0]?.id); });
     api<Package[]>('/packages').then(setPackages);
     api<string[]>('/slots').then(setSlots);
+    api<Hub[]>('/hubs').then(setHubs);
     (async () => {
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== 'granted') return;
       const pos = await Location.getCurrentPositionAsync({});
       movePin({ latitude: pos.coords.latitude, longitude: pos.coords.longitude });
+      // Nearest hubs first.
+      api<Hub[]>(`/hubs?lat=${pos.coords.latitude}&lng=${pos.coords.longitude}`).then(setHubs);
     })();
   }, []);
 
@@ -52,23 +62,32 @@ export default function Book() {
     } catch { /* address stays editable */ }
   };
 
+  const redeemPoints = usePoints ? user?.loyalty_points ?? 0 : 0;
+
   useEffect(() => {
     if (!packageId) return setQuote(null);
-    api<Quote>('/bookings/quote', { body: { packageId, addonIds, promoCode: promo || null } })
+    api<Quote>('/bookings/quote', { body: { packageId, addonIds, promoCode: promo || null, redeemPoints } })
       .then((q) => { setQuote(q); setQuoteError(''); })
       .catch((e) => { setQuoteError(e.message); setQuote(null); });
-  }, [packageId, addonIds, promo]);
+  }, [packageId, addonIds, promo, redeemPoints]);
 
   const confirm = async () => {
     setBusy(true);
     try {
       const res = await api('/bookings', {
         body: {
-          vehicleId, packageId, addonIds, scheduledAt: slot, recurrence, lat: pin.latitude, lng: pin.longitude,
-          address, notes, promoCode: promo || null, paymentMethod,
+          vehicleId, packageId, addonIds, scheduledAt: slot, recurrence, notes, promoCode: promo || null, redeemPoints, paymentMethod,
+          ...(where === 'hub' ? { hubId } : { lat: pin.latitude, lng: pin.longitude, address }),
         },
       });
-      // With live Stripe keys, res.clientSecret is confirmed here with @stripe/stripe-react-native's PaymentSheet.
+      refresh();
+      // Live Stripe: authorize the card now (charged only when the wash is done). Closing the sheet leaves
+      // the booking waiting for payment, which the booking screen offers to finish.
+      try {
+        await pay(res.payment);
+      } catch (e: any) {
+        Alert.alert('Payment not completed', e.message);
+      }
       router.replace(`/booking/${res.booking.id}`);
     } catch (e: any) {
       Alert.alert('Booking failed', e.message);
@@ -128,17 +147,36 @@ export default function Book() {
         ))}
       </View>
 
-      <H>Where is the car?</H>
-      <Muted>Drag the pin or tap the map to the exact spot.</Muted>
-      <MapView
-        style={{ height: 220, borderRadius: 12, marginVertical: 8 }}
-        region={{ ...pin, latitudeDelta: 0.01, longitudeDelta: 0.01 }}
-        onPress={(e) => movePin(e.nativeEvent.coordinate)}
-      >
-        <Marker coordinate={pin} draggable onDragEnd={(e) => movePin(e.nativeEvent.coordinate)} />
-      </MapView>
-      <Input label="Address / landmark" value={address} onChangeText={setAddress} />
-      <Input label="Notes for the washer (optional)" placeholder="e.g. Basement parking, bay 12" value={notes} onChangeText={setNotes} />
+      <H>Where?</H>
+      <View style={styles.wrap}>
+        <Chip label="Come to me" selected={where === 'mobile'} onPress={() => setWhere('mobile')} />
+        <Chip label="I'll visit a hub" selected={where === 'hub'} onPress={() => setWhere('hub')} />
+      </View>
+      {where === 'mobile' ? (
+        <>
+          <Muted>Drag the pin or tap the map to the exact spot.</Muted>
+          <MapView
+            style={{ height: 220, borderRadius: 12, marginVertical: 8 }}
+            region={{ ...pin, latitudeDelta: 0.01, longitudeDelta: 0.01 }}
+            onPress={(e) => movePin(e.nativeEvent.coordinate)}
+          >
+            <Marker coordinate={pin} draggable onDragEnd={(e) => movePin(e.nativeEvent.coordinate)} />
+          </MapView>
+          <Input label="Address / landmark" value={address} onChangeText={setAddress} />
+          <Input label="Notes for the washer (optional)" placeholder="e.g. Basement parking, bay 12" value={notes} onChangeText={setNotes} />
+        </>
+      ) : (
+        hubs.map((h) => (
+          <Card key={h.id} style={hubId === h.id ? { borderColor: colors.primary, borderWidth: 2 } : undefined}>
+            <Text onPress={() => setHubId(h.id)}>
+              <Text style={{ fontWeight: '700' }}>{h.name}</Text>
+              {h.distance_km != null ? <Text style={{ color: colors.muted }}>  {h.distance_km} km</Text> : null}
+              {'\n'}
+              <Text style={{ color: colors.muted }}>{h.address} · {h.hours}</Text>
+            </Text>
+          </Card>
+        ))
+      )}
 
       <H>Payment</H>
       <View style={styles.wrap}>
@@ -146,22 +184,39 @@ export default function Book() {
         <Chip label="Cash" selected={paymentMethod === 'cash'} onPress={() => setPaymentMethod('cash')} />
       </View>
       <Input label="Promo code" autoCapitalize="characters" placeholder="WELCOME20" value={promo} onChangeText={setPromo} />
+      {(user?.loyalty_points ?? 0) > 0 && (
+        <Chip
+          label={`Use my ${user!.loyalty_points} points (up to ${money(user!.loyalty_points * pointValueCents)} off)`}
+          selected={usePoints}
+          onPress={() => setUsePoints(!usePoints)}
+        />
+      )}
       {quoteError ? <Text style={{ color: colors.danger, marginBottom: 8 }}>{quoteError}</Text> : null}
 
       {quote && (
         <Card>
           <View style={styles.row}><Muted>Subtotal</Muted><Text>{money(quote.subtotalCents)}</Text></View>
+          {quote.membershipDiscountCents > 0 && (
+            <View style={styles.row}><Muted>Membership</Muted><Text style={{ color: colors.success }}>-{money(quote.membershipDiscountCents)}</Text></View>
+          )}
           {quote.discountCents > 0 && (
-            <View style={styles.row}><Muted>Discount</Muted><Text style={{ color: colors.success }}>-{money(quote.discountCents)}</Text></View>
+            <View style={styles.row}><Muted>Promo</Muted><Text style={{ color: colors.success }}>-{money(quote.discountCents)}</Text></View>
+          )}
+          {quote.pointsDiscountCents > 0 && (
+            <View style={styles.row}><Muted>{quote.pointsRedeemed} points</Muted><Text style={{ color: colors.success }}>-{money(quote.pointsDiscountCents)}</Text></View>
           )}
           <View style={[styles.row, { marginTop: 6 }]}>
             <Text style={{ fontWeight: '700', fontSize: 16 }}>Total</Text>
             <Text style={{ fontWeight: '700', fontSize: 16 }}>{money(quote.totalCents)}</Text>
           </View>
-          <Muted>About {quote.durationMin} minutes. Card is only charged when the wash is done.</Muted>
+          <Muted>
+            About {quote.durationMin} minutes.
+            {quote.membershipWashesLeft != null ? ` ${quote.membershipWashesLeft} membership washes left after this.` : ''}
+            {quote.totalCents > 0 && paymentMethod === 'card' ? ' Card is only charged when the wash is done.' : ''}
+          </Muted>
         </Card>
       )}
-      <Button title="Confirm booking" onPress={confirm} loading={busy} disabled={!vehicleId || !packageId || !slot || !quote} />
+      <Button title="Confirm booking" onPress={confirm} loading={busy} disabled={!vehicleId || !packageId || !slot || !quote || (where === 'hub' && !hubId)} />
     </ScrollView>
   );
 }

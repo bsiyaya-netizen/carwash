@@ -55,6 +55,7 @@ export default function Home() {
 
       <View style={{ height: 24 }} />
       <Button title="My vehicles" variant="secondary" onPress={() => router.push('/vehicles')} />
+      <Button title="Account & membership" variant="secondary" onPress={() => router.push('/account')} />
       <Button title="Sign out" variant="secondary" onPress={signOut} />
     </ScrollView>
   );
@@ -68,7 +69,7 @@ function BookingRow({ b, onPress }: { b: Booking; onPress: () => void }) {
           <Text style={{ fontWeight: '600', fontSize: 16 }}>{b.package.name}</Text>
           <Text style={{ fontWeight: '600' }}>{money(b.total_cents)}</Text>
         </View>
-        <Muted>{when(b.scheduled_at)} · {b.vehicle.make} {b.vehicle.model}</Muted>
+        <Muted>{when(b.scheduled_at)} · {b.vehicle.make} {b.vehicle.model}{b.hub ? ` · ${b.hub.name}` : ''}</Muted>
         <Text style={{ marginTop: 6, color: b.status === 'cancelled' ? colors.danger : colors.primary, fontWeight: '600' }}>
           {STATUS_LABEL[b.status]}{b.recurrence !== 'none' ? ` · repeats ${b.recurrence}` : ''}
         </Text>

@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { requireAuth, me } from '../auth.js';
 import { one, query } from '../db.js';
 import { notFound } from '../errors.js';
+import { config } from '../config.js';
 import { paymentsMode } from '../payments.js';
 
 export const catalogRouter = Router();
@@ -11,8 +12,15 @@ catalogRouter.get('/packages', async (_req, res) => {
   res.json(await query('SELECT * FROM packages WHERE active ORDER BY is_addon, price_cents'));
 });
 
+/** Public client configuration. */
 catalogRouter.get('/config', (_req, res) => {
-  res.json({ paymentsMode });
+  res.json({
+    paymentsMode,
+    stripePublishableKey: config.stripePublishableKey,
+    currency: config.currency,
+    pointValueCents: config.pointValueCents,
+    googleClientIds: config.googleClientIds,
+  });
 });
 
 /** Next 7 days, hourly slots 08:00 to 17:00 local server time. Capacity rules come later. */

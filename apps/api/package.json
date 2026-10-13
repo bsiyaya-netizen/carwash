@@ -9,12 +9,15 @@
     "db:migrate": "tsx src/migrate.ts",
     "db:seed": "tsx src/seed.ts",
     "typecheck": "tsc --noEmit",
-    "smoke": "tsx scripts/smoke.ts"
+    "smoke": "tsx scripts/smoke.ts",
+    "test:webhooks": "tsx scripts/webhook-test.ts",
+    "create-admin": "tsx scripts/create-admin.ts"
   },
   "dependencies": {
     "cors": "^2.8.6",
     "dotenv": "^18.0.7",
     "express": "^5.3.0",
+    "jose": "^6.2.12",
     "jsonwebtoken": "^9.0.3",
     "pg": "^8.23.1",
     "socket.io": "^4.8.4",

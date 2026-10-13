@@ -3,11 +3,13 @@ import { api, getToken, setToken } from './api';
 import Bookings from './pages/Bookings';
 import Campaigns from './pages/Campaigns';
 import Customers from './pages/Customers';
+import Hubs from './pages/Hubs';
+import Memberships from './pages/Memberships';
 import Overview from './pages/Overview';
 import Promos from './pages/Promos';
 import Washers from './pages/Washers';
 
-const PAGES = { Overview, Bookings, Customers, Washers, Campaigns, Promos } as const;
+const PAGES = { Overview, Bookings, Customers, Washers, Memberships, Hubs, Campaigns, Promos } as const;
 type PageName = keyof typeof PAGES;
 
 export default function App() {
