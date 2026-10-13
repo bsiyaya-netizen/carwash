@@ -1,6 +1,7 @@
 import type { Server as HttpServer } from 'node:http';
 import { Server } from 'socket.io';
 import { verifyToken } from './auth.js';
+import { config } from './config.js';
 import { one, query } from './db.js';
 
 let io: Server;
@@ -13,7 +14,7 @@ let io: Server;
  *   booking:<id>   customer + assigned washer (status + live location)
  */
 export function initRealtime(server: HttpServer) {
-  io = new Server(server, { cors: { origin: '*' } });
+  io = new Server(server, { cors: { origin: config.corsOrigins.length ? config.corsOrigins : '*' } });
 
   io.use((socket, next) => {
     try {

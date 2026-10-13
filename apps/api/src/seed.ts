@@ -20,6 +20,30 @@ for (const [code, name, description, price, duration, isAddon] of packages) {
 
 await query(`INSERT INTO promo_codes (code, percent_off) VALUES ('WELCOME20', 20) ON CONFLICT DO NOTHING`);
 
+const plans = [
+  ['shine', 'Weekly Shine', 'Four exterior washes a month, 10% off add-ons', 44900, 4, ['exterior'], 10],
+  ['valet', 'Valet Club', 'Four washes a month of any kind up to a Full Valet, 15% off add-ons', 89900, 4, ['exterior', 'interior', 'full'], 15],
+] as const;
+for (const [code, name, description, price, washes, covered, addonPct] of plans) {
+  await query(
+    `INSERT INTO membership_plans (code, name, description, price_cents, washes_per_period, covered_package_codes, addon_discount_percent)
+     VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (code) DO NOTHING`,
+    [code, name, description, price, washes, covered, addonPct],
+  );
+}
+
+const hubs = [
+  ['Sparkle Hub Sandton', '12 Rivonia Rd, Sandton, Johannesburg', -26.1076, 28.0567],
+  ['Sparkle Hub Rosebank', '50 Bath Ave, Rosebank, Johannesburg', -26.1452, 28.0436],
+  ['Sparkle Hub Cape Town CBD', '1 Long St, Cape Town', -33.9188, 18.4233],
+] as const;
+for (const [name, address, lat, lng] of hubs) {
+  await query(
+    `INSERT INTO hubs (name, address, lat, lng) SELECT $1,$2,$3,$4 WHERE NOT EXISTS (SELECT 1 FROM hubs WHERE name = $1)`,
+    [name, address, lat, lng],
+  );
+}
+
 const users = [
   ['admin', 'Admin', '+27000000001', 'ADMIN1'],
   ['washer', 'Demo Washer', '+27000000002', 'WASH01'],
@@ -32,7 +56,7 @@ for (const [role, name, phone, ref] of users) {
   );
 }
 
-console.log('Seeded packages, promo WELCOME20, and demo users:');
+console.log('Seeded packages, membership plans, hubs, promo WELCOME20, and demo users:');
 console.log('  admin    +27000000001');
 console.log('  washer   +27000000002');
 console.log('  customer +27000000003');

@@ -1,10 +1,10 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { requireAuth, me } from '../auth.js';
-import { announce, bookingDetail, createBooking, listBookings } from '../bookings.js';
+import { bookingDetail, cancelBooking, createBooking, listBookings } from '../bookings.js';
 import { one, query } from '../db.js';
 import { badRequest, forbidden, notFound } from '../errors.js';
-import { cancelCard, chargeTip } from '../payments.js';
+import { createTip, resumeBookingPayment } from '../payments.js';
 import { quote } from '../pricing.js';
 
 export const bookingsRouter = Router();
@@ -13,19 +13,21 @@ const quoteSchema = z.object({
   packageId: z.string().uuid(),
   addonIds: z.array(z.string().uuid()).default([]),
   promoCode: z.string().nullish(),
+  redeemPoints: z.number().int().min(0).default(0),
 });
 
 bookingsRouter.post('/quote', requireAuth('customer'), async (req, res) => {
   const q = quoteSchema.parse(req.body);
-  res.json(await quote(q.packageId, q.addonIds, q.promoCode));
+  res.json(await quote({ ...q, userId: me(req).id }));
 });
 
 const createSchema = quoteSchema.extend({
   vehicleId: z.string().uuid(),
   scheduledAt: z.string().datetime(),
   recurrence: z.enum(['none', 'weekly', 'monthly']).default('none'),
-  lat: z.number().min(-90).max(90),
-  lng: z.number().min(-180).max(180),
+  hubId: z.string().uuid().nullish(),
+  lat: z.number().min(-90).max(90).optional(),
+  lng: z.number().min(-180).max(180).optional(),
   address: z.string().default(''),
   notes: z.string().default(''),
   paymentMethod: z.enum(['card', 'cash']),
@@ -33,6 +35,7 @@ const createSchema = quoteSchema.extend({
 
 bookingsRouter.post('/', requireAuth('customer'), async (req, res) => {
   const body = createSchema.parse(req.body);
+  if (new Date(body.scheduledAt).getTime() < Date.now() - 5 * 60 * 1000) throw badRequest('That time slot has passed');
   const vehicle = await one('SELECT id FROM vehicles WHERE id = $1 AND user_id = $2', [body.vehicleId, me(req).id]);
   if (!vehicle) throw badRequest('Unknown vehicle');
   res.status(201).json(await createBooking({ ...body, customerId: me(req).id }));
@@ -52,19 +55,21 @@ bookingsRouter.get('/:id', requireAuth(), async (req, res) => {
   res.json(b);
 });
 
-bookingsRouter.post('/:id/cancel', requireAuth('customer', 'admin'), async (req, res) => {
-  const u = me(req);
+/** Card step not finished (app closed, card declined, or a repeat booking needing confirmation): get a fresh payment sheet. */
+bookingsRouter.post('/:id/pay', requireAuth('customer'), async (req, res) => {
   const b = await one(
-    `UPDATE bookings SET status = 'cancelled'
-     WHERE id = $1 AND status IN ('pending','accepted') AND ($2::boolean OR customer_id = $3) RETURNING *`,
-    [req.params.id, u.role === 'admin', u.id],
+    `SELECT * FROM bookings WHERE id = $1 AND customer_id = $2 AND payment_method = 'card' AND payment_status IN ('unpaid','failed') AND status = 'pending'`,
+    [req.params.id, me(req).id],
   );
-  if (!b) throw badRequest('Booking cannot be cancelled now');
-  if (b.payment_intent_id) await cancelCard(b.payment_intent_id);
-  res.json(await announce(b.id));
+  if (!b?.payment_intent_id) throw badRequest('This booking does not need payment');
+  res.json({ payment: await resumeBookingPayment(b.payment_intent_id, me(req).id) });
 });
 
-const reviewSchema = z.object({ rating: z.number().int().min(1).max(5), comment: z.string().default('') });
+bookingsRouter.post('/:id/cancel', requireAuth('customer', 'admin'), async (req, res) => {
+  res.json(await cancelBooking(String(req.params.id), me(req)));
+});
+
+const reviewSchema = z.object({ rating: z.number().int().min(1).max(5), comment: z.string().max(2000).default('') });
 
 bookingsRouter.post('/:id/review', requireAuth('customer'), async (req, res) => {
   const r = reviewSchema.parse(req.body);
@@ -78,13 +83,21 @@ bookingsRouter.post('/:id/review', requireAuth('customer'), async (req, res) => 
   res.status(201).json(review);
 });
 
-const tipSchema = z.object({ amountCents: z.number().int().min(100) });
+const tipSchema = z.object({ amountCents: z.number().int().min(100).max(100000) });
 
 bookingsRouter.post('/:id/tip', requireAuth('customer'), async (req, res) => {
   const { amountCents } = tipSchema.parse(req.body);
   const b = await one(`SELECT * FROM bookings WHERE id = $1 AND customer_id = $2 AND status = 'completed'`, [req.params.id, me(req).id]);
   if (!b) throw badRequest('You can tip once the wash is completed');
-  const { clientSecret } = await chargeTip(b.id, amountCents);
-  await query('UPDATE bookings SET tip_cents = tip_cents + $2 WHERE id = $1', [b.id, amountCents]);
-  res.json({ clientSecret, booking: await bookingDetail(b.id, me(req)) });
+  const payment = await createTip(b.id, me(req).id, amountCents);
+  res.json({ payment, booking: await bookingDetail(b.id, me(req)) });
+});
+
+/** Saved locations from past bookings, for one-tap rebooking. */
+bookingsRouter.get('/meta/places', requireAuth('customer'), async (req, res) => {
+  res.json(await query(
+    `SELECT DISTINCT ON (address) address, lat, lng FROM bookings
+     WHERE customer_id = $1 AND hub_id IS NULL AND address <> '' ORDER BY address, created_at DESC LIMIT 10`,
+    [me(req).id],
+  ));
 });

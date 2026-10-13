@@ -1,11 +1,10 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { requireAuth, me } from '../auth.js';
-import { ACTIVE_STATUSES, announce, bookingDetail, createBooking, listBookings } from '../bookings.js';
+import { ACTIVE_STATUSES, DISPATCHABLE_SQL, announce, bookingDetail, completeBooking, listBookings } from '../bookings.js';
 import { config } from '../config.js';
 import { one, query } from '../db.js';
 import { badRequest, HttpError } from '../errors.js';
-import { captureCard } from '../payments.js';
 import { emit } from '../realtime.js';
 
 export const washerRouter = Router();
@@ -16,12 +15,19 @@ washerRouter.post('/online', async (req, res) => {
   res.json(await one('UPDATE users SET is_online = $2 WHERE id = $1 RETURNING id, is_online', [me(req).id, online]));
 });
 
-/** Open jobs this washer hasn't declined, soonest first. */
+/** Open, payable jobs this washer hasn't declined: nearest first when we know where the washer is, else soonest. */
 washerRouter.get('/jobs/available', async (req, res) => {
+  const w = await one('SELECT last_lat, last_lng FROM users WHERE id = $1', [me(req).id]);
+  const hasPos = w?.last_lat != null && w?.last_lng != null;
+  const distance = hasPos
+    ? `round((6371 * acos(least(1, cos(radians($2)) * cos(radians(b.lat)) * cos(radians(b.lng) - radians($3))
+         + sin(radians($2)) * sin(radians(b.lat)))))::numeric, 1)::float AS distance_km`
+    : 'NULL::float AS distance_km';
   res.json(await listBookings(
-    `b.status = 'pending' AND b.washer_id IS NULL
+    `b.status = 'pending' AND b.washer_id IS NULL AND ${DISPATCHABLE_SQL}
      AND NOT EXISTS (SELECT 1 FROM job_declines d WHERE d.booking_id = b.id AND d.washer_id = $1)`,
-    [me(req).id], me(req),
+    hasPos ? [me(req).id, w.last_lat, w.last_lng] : [me(req).id], me(req),
+    { select: distance, orderBy: hasPos ? 'distance_km ASC, scheduled_at ASC' : 'scheduled_at ASC' },
   ));
 });
 
@@ -36,7 +42,8 @@ washerRouter.post('/jobs/:id/accept', async (req, res) => {
   // Atomic: only one washer can win the job.
   const b = await one(
     `UPDATE bookings SET washer_id = $2, status = 'accepted', accepted_at = now()
-     WHERE id = $1 AND status = 'pending' AND washer_id IS NULL RETURNING id`,
+     WHERE id = $1 AND status = 'pending' AND washer_id IS NULL
+       AND (payment_method = 'cash' OR payment_status IN ('authorized','paid')) RETURNING id`,
     [req.params.id, u.id],
   );
   if (!b) throw new HttpError(409, 'Job already taken');
@@ -62,7 +69,7 @@ washerRouter.post('/jobs/:id/status', async (req, res) => {
     [req.params.id, u.id, status, NEXT[status]],
   );
   if (!b) throw badRequest(`Job must be "${NEXT[status]}" to move to "${status}"`);
-  if (status === 'completed') await onCompleted(b);
+  if (status === 'completed') await completeBooking(b);
   await announce(b.id);
   res.json(await bookingDetail(b.id, u));
 });
@@ -88,25 +95,6 @@ washerRouter.post('/jobs/:id/cash-collected', async (req, res) => {
   res.json(await announce(b.id));
 });
 
-async function onCompleted(b: any) {
-  if (b.payment_method === 'card' && b.payment_intent_id) {
-    await captureCard(b.payment_intent_id, b.total_cents);
-    await query(`UPDATE bookings SET payment_status = 'paid' WHERE id = $1`, [b.id]);
-  }
-  // 1 loyalty point per whole currency unit spent.
-  await query('UPDATE users SET loyalty_points = loyalty_points + $2 WHERE id = $1', [b.customer_id, Math.floor(b.total_cents / 100)]);
-  if (b.recurrence !== 'none') {
-    const next = new Date(b.scheduled_at);
-    if (b.recurrence === 'weekly') next.setDate(next.getDate() + 7);
-    else next.setMonth(next.getMonth() + 1);
-    await createBooking({
-      customerId: b.customer_id, vehicleId: b.vehicle_id, packageId: b.package_id, addonIds: b.addon_ids,
-      scheduledAt: next.toISOString(), recurrence: b.recurrence, lat: b.lat, lng: b.lng, address: b.address,
-      notes: b.notes, promoCode: null, paymentMethod: b.payment_method,
-    });
-  }
-}
-
 const PERIODS = { day: '1 day', week: '7 days', month: '30 days' } as const;
 
 washerRouter.get('/earnings', async (req, res) => {
@@ -114,7 +102,7 @@ washerRouter.get('/earnings', async (req, res) => {
   const u = me(req);
   const summary = await one(
     `SELECT count(*)::int AS jobs,
-       coalesce(sum(total_cents), 0)::int AS gross_cents,
+       coalesce(sum(subtotal_cents), 0)::int AS gross_cents,
        coalesce(sum(tip_cents), 0)::int AS tips_cents,
        coalesce(sum(CASE WHEN payment_method = 'cash' THEN total_cents ELSE 0 END), 0)::int AS cash_collected_cents
      FROM bookings WHERE washer_id = $1 AND status = 'completed' AND completed_at > now() - $2::interval`,
@@ -123,7 +111,7 @@ washerRouter.get('/earnings', async (req, res) => {
   const shareCents = Math.round(summary.gross_cents * config.washerShare);
   const daily = await query(
     `SELECT to_char(date_trunc('day', completed_at), 'YYYY-MM-DD') AS day, count(*)::int AS jobs,
-       sum(total_cents)::int AS gross_cents, sum(tip_cents)::int AS tips_cents
+       sum(subtotal_cents)::int AS gross_cents, sum(tip_cents)::int AS tips_cents
      FROM bookings WHERE washer_id = $1 AND status = 'completed' AND completed_at > now() - $2::interval
      GROUP BY 1 ORDER BY 1`,
     [u.id, PERIODS[period]],
