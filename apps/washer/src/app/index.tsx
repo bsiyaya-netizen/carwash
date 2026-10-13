@@ -102,7 +102,10 @@ export default function Jobs() {
           {b.addons.length > 0 && <Muted>+ {b.addons.map((a) => a.name).join(', ')}</Muted>}
           <Muted>{when(b.scheduled_at)} · ~{b.package.duration_min} min</Muted>
           <Muted>{b.vehicle.color} {b.vehicle.make} {b.vehicle.model}</Muted>
-          <Muted>{b.address || `${b.lat.toFixed(4)}, ${b.lng.toFixed(4)}`} · {b.payment_method}</Muted>
+          <Muted>
+            {b.hub ? `Hub: ${b.hub.name}` : b.address || `${b.lat.toFixed(4)}, ${b.lng.toFixed(4)}`}
+            {b.distance_km != null ? ` · ${b.distance_km} km away` : ''} · {b.payment_method === 'cash' ? 'collect cash' : 'prepaid'}
+          </Muted>
           <View style={{ flexDirection: 'row', gap: 8, marginTop: 8 }}>
             <Button title="Decline" variant="secondary" onPress={() => decline(b)} style={{ flex: 1 }} />
             <Button title="Accept" onPress={() => accept(b)} disabled={!!current} style={{ flex: 1 }} />
@@ -113,6 +116,11 @@ export default function Jobs() {
       <View style={{ height: 16 }} />
       <Button title="Earnings & history" variant="secondary" onPress={() => router.push('/earnings')} />
       <Button title="Sign out" variant="secondary" onPress={signOut} />
+      <Button title="Delete account" variant="danger" onPress={() =>
+        Alert.alert('Delete your account?', 'Your personal details are removed. This cannot be undone.', [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Delete', style: 'destructive', onPress: () => api('/auth/me', { method: 'DELETE' }).then(signOut).catch((e) => Alert.alert('Could not delete', e.message)) },
+        ])} />
     </ScrollView>
   );
 }

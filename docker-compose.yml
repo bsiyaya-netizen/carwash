@@ -6,5 +6,16 @@ services:
       POSTGRES_DB: carwash
     ports: ["5432:5432"]
     volumes: [pgdata:/var/lib/postgresql/data]
+
+  # Optional: run the API in Docker too (`docker compose --profile full up`). For local development `npm run dev` is quicker.
+  api:
+    build: ./apps/api
+    profiles: [full]
+    env_file: ./apps/api/.env
+    environment:
+      DATABASE_URL: postgres://postgres:postgres@db:5432/carwash
+    ports: ["4000:4000"]
+    depends_on: [db]
+
 volumes:
   pgdata:

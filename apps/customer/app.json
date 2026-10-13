@@ -8,7 +8,11 @@
     "userInterfaceStyle": "light",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.example.carwash.customer"
+      "bundleIdentifier": "com.example.carwash.customer",
+      "usesAppleSignIn": true,
+      "config": {
+        "googleMapsApiKey": "REPLACE_WITH_IOS_GOOGLE_MAPS_KEY"
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -18,7 +22,12 @@
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": false,
-      "package": "com.example.carwash.customer"
+      "package": "com.example.carwash.customer",
+      "config": {
+        "googleMaps": {
+          "apiKey": "REPLACE_WITH_ANDROID_GOOGLE_MAPS_KEY"
+        }
+      }
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -32,7 +41,16 @@
           "locationWhenInUsePermission": "We use your location to pin where your car is parked."
         }
       ],
-      "expo-notifications"
+      "expo-notifications",
+      "expo-web-browser",
+      [
+        "@stripe/stripe-react-native",
+        {
+          "merchantIdentifier": "merchant.com.example.carwash",
+          "enableGooglePay": true
+        }
+      ],
+      "expo-apple-authentication"
     ],
     "scheme": "carwash-customer"
   }

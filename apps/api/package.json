@@ -10,7 +10,8 @@
     "db:seed": "tsx src/seed.ts",
     "typecheck": "tsc --noEmit",
     "smoke": "tsx scripts/smoke.ts",
-    "test:webhooks": "tsx scripts/webhook-test.ts"
+    "test:webhooks": "tsx scripts/webhook-test.ts",
+    "create-admin": "tsx scripts/create-admin.ts"
   },
   "dependencies": {
     "cors": "^2.8.6",

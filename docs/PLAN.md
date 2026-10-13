@@ -7,6 +7,7 @@
 | Customer app | Car owners | Expo (React Native), iOS + Android |
 | Washer app | Service providers | Expo (React Native), iOS + Android |
 | Admin dashboard | Operations team | React + Vite (web) |
+| Customer website | Car owners on the web | React + Vite, Leaflet maps |
 | API | All of the above | Node.js 22 + TypeScript + Express, Postgres 16, Socket.IO |
 
 Third parties: **Stripe** (cards, Apple Pay, Google Pay via PaymentSheet), **Google Maps** (map tiles, geocoding, directions deep-links), **Expo Push** (notifications), an SMS provider such as **Twilio Verify** for login codes (stubbed in dev).
@@ -43,31 +44,28 @@ Third parties: **Stripe** (cards, Apple Pay, Google Pay via PaymentSheet), **Goo
 8. **Earnings**: washer sees day/week/month totals: jobs, gross, their share (default 75%), tips (100% to washer).
 9. **Admin**: revenue by day and month, bookings by hour of day (peak hours), average rating, repeat-customer rate, customer list with booking counts and spend, push campaigns.
 
-## 4. MVP scope (what the scaffold in `/carwash` implements)
+## 4. Scope: built vs. still to do
 
-| Feature from brief | MVP | Phase 2 |
+| Feature from brief | Built | Still to do |
 |---|---|---|
-| Registration & profile, saved vehicles | Phone OTP login, profile, vehicles CRUD | Email + social login |
-| Booking & scheduling | Packages, add-ons, time slots, weekly/monthly repeat | Slot capacity per zone |
-| GPS & location | Map pin for service location | Physical hub finder |
-| Real-time tracking | Socket.IO status + live washer location | ETA from Directions API |
-| Payments | Stripe PaymentIntent (mock mode without keys), cash | Apple/Google Pay via PaymentSheet in app, refunds |
-| Subscriptions & loyalty | Recurring bookings, promo codes, referral codes, points | Paid memberships (Stripe Billing), points redemption |
-| Reviews & ratings | Rate + comment after completion | Photo uploads, dispute flow |
-| Washer job queue | Live new-job alerts, accept/decline | Auto-dispatch by distance |
-| In-app navigation | Map + "Navigate" deep-link to Google/Apple Maps | Embedded turn-by-turn |
+| Registration & profile, saved vehicles | Phone and email codes, Google, Apple, profile, vehicles, account deletion | |
+| Booking & scheduling | Packages, add-ons, time slots, weekly/monthly repeat (auto-charged) | Slot capacity per area |
+| GPS & location | Map pin (app + website), hub finder sorted by distance | |
+| Real-time tracking | Socket.IO status + live washer location, push notifications | ETA from a directions API; background location |
+| Payments | Stripe PaymentSheet (app) and Payment Element (web): card, Apple Pay, Google Pay; cash; webhooks | Refund tooling in admin |
+| Subscriptions & loyalty | Memberships on Stripe Billing, promo codes, referrals, points earn + redeem | |
+| Reviews & ratings | Stars + comment, tips | Photos, dispute flow |
+| Washer job queue | Live alerts, nearest first, accept/decline | Auto-assignment |
+| In-app navigation | Navigate hand-off to Google/Apple Maps | Embedded turn-by-turn |
 | OTP handover | Required to start the wash | Before/after photos |
-| Earnings | Day/week/month jobs, share, tips | Stripe Connect payouts |
-| Admin analytics | Revenue, peak hours, rating, repeat rate | Cohorts, CSV export |
-| Admin CRM | Customer list, segments, push campaigns | Email/SMS campaigns |
+| Earnings | Day/week/month: share, tips, cash held, payout | Stripe Connect payouts |
+| Admin analytics | Revenue, MRR, peak hours, packages, rating, repeat rate | CSV export |
+| Admin CRM | Customers, segments, push campaigns, promos, memberships, hubs | Email/SMS campaigns |
+| Website | Landing page, pricing, memberships, hubs, FAQ, web booking, tracking, account | Blog / SEO pages |
 
-## 5. Milestones
+## 5. Launch
 
-1. **Foundation**: API, schema, auth, packages, vehicles. *(done in scaffold)*
-2. **Booking + dispatch + tracking + OTP**. *(done in scaffold)*
-3. **Payments**: wire real Stripe keys, add PaymentSheet to customer app, webhooks.
-4. **Admin + CRM**. *(done in scaffold, basic)*
-5. **Hardening**: rate limits on OTP, background location on washer app, error tracking (Sentry), E2E tests, store submissions (EAS Build).
+Everything that needs an account or key from the business owner is listed in [`LAUNCH.md`](LAUNCH.md).
 
 ## 6. Things to decide
 

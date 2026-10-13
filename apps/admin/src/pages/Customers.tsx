@@ -35,7 +35,7 @@ export default function Customers() {
             {rows.map((c) => (
               <tr key={c.id}>
                 <td>{c.name}</td>
-                <td>{c.phone}</td>
+                <td>{c.phone ?? <span className="muted">–</span>}</td>
                 <td>{c.email ?? <span className="muted">–</span>}</td>
                 <td>{c.completed_count}</td>
                 <td>{money(c.spend_cents)}</td>

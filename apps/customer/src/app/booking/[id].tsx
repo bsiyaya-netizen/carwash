@@ -4,6 +4,7 @@ import { Alert, Linking, ScrollView, Text, View } from 'react-native';
 import MapView, { Marker } from 'react-native-maps';
 import { api } from '../../lib/api';
 import { money, STATUS_LABEL, STATUS_STEPS, when } from '../../lib/format';
+import { usePaymentSheet } from '../../lib/payments';
 import { getSocket } from '../../lib/socket';
 import type { Booking } from '../../lib/types';
 import { Button, Card, Chip, colors, H, Input, Muted, styles } from '../../lib/ui';
@@ -12,6 +13,7 @@ export default function BookingScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const [b, setB] = useState<Booking | null>(null);
   const [washerPos, setWasherPos] = useState<{ latitude: number; longitude: number } | null>(null);
+  const pay = usePaymentSheet();
 
   useEffect(() => {
     api<Booking>(`/bookings/${id}`).then((bk) => {
@@ -40,6 +42,16 @@ export default function BookingScreen() {
   const stepIndex = STATUS_STEPS.indexOf(b.status);
   const pin = { latitude: b.lat, longitude: b.lng };
   const showOtp = ['accepted', 'en_route', 'arrived'].includes(b.status);
+  const needsPayment = b.payment_method === 'card' && ['unpaid', 'failed'].includes(b.payment_status) && b.status === 'pending';
+
+  const payNow = async () => {
+    try {
+      const res = await api(`/bookings/${id}/pay`, { method: 'POST' });
+      if (await pay(res.payment)) setTimeout(() => api<Booking>(`/bookings/${id}`).then(setB), 1500);
+    } catch (e: any) {
+      Alert.alert('Payment not completed', e.message);
+    }
+  };
 
   const cancel = () =>
     Alert.alert('Cancel this booking?', undefined, [
@@ -62,6 +74,13 @@ export default function BookingScreen() {
         </View>
       )}
 
+      {needsPayment && (
+        <Card style={{ borderColor: colors.danger }}>
+          <Text style={{ fontWeight: '600' }}>Confirm your payment to send this booking to washers.</Text>
+          <Button title="Add payment" onPress={payNow} />
+        </Card>
+      )}
+
       {showOtp && b.handover_otp && (
         <Card style={{ alignItems: 'center', borderColor: colors.primary }}>
           <Muted>Handover code. Give this to your washer when they arrive.</Muted>
@@ -70,7 +89,7 @@ export default function BookingScreen() {
       )}
 
       <MapView style={{ height: 240, borderRadius: 12, marginBottom: 12 }} initialRegion={{ ...pin, latitudeDelta: 0.03, longitudeDelta: 0.03 }}>
-        <Marker coordinate={pin} title="Your car" />
+        <Marker coordinate={pin} title={b.hub ? b.hub.name : 'Your car'} />
         {washerPos && <Marker coordinate={washerPos} title={b.washer?.name ?? 'Washer'} pinColor={colors.primary} />}
       </MapView>
 
@@ -81,7 +100,7 @@ export default function BookingScreen() {
               <Text style={{ fontWeight: '600', fontSize: 16 }}>{b.washer.name}</Text>
               <Muted>{b.washer.rating ? `★ ${b.washer.rating}` : 'New washer'}</Muted>
             </View>
-            <Button title="Call" variant="secondary" onPress={() => Linking.openURL(`tel:${b.washer!.phone}`)} />
+            {b.washer.phone ? <Button title="Call" variant="secondary" onPress={() => Linking.openURL(`tel:${b.washer!.phone}`)} /> : null}
           </View>
         </Card>
       )}
@@ -89,7 +108,11 @@ export default function BookingScreen() {
       <Card>
         <Muted>{b.vehicle.color} {b.vehicle.make} {b.vehicle.model} · {b.vehicle.plate}</Muted>
         <Muted>{b.address}</Muted>
+        {b.hub?.phone ? <Muted>Hub phone: {b.hub.phone}</Muted> : null}
         {b.addons.length > 0 && <Muted>Add-ons: {b.addons.map((a) => a.name).join(', ')}</Muted>}
+        {b.membership_discount_cents > 0 && <Muted>Membership: -{money(b.membership_discount_cents)}</Muted>}
+        {b.discount_cents > 0 && <Muted>Promo: -{money(b.discount_cents)}</Muted>}
+        {b.points_discount_cents > 0 && <Muted>Points: -{money(b.points_discount_cents)}</Muted>}
         <View style={[styles.row, { marginTop: 8 }]}>
           <Text style={{ fontWeight: '600' }}>Total ({b.payment_method})</Text>
           <Text style={{ fontWeight: '600' }}>{money(b.total_cents)}</Text>
@@ -104,6 +127,7 @@ export default function BookingScreen() {
 }
 
 function AfterWash({ b, onChange }: { b: Booking; onChange: (b: Booking) => void }) {
+  const pay = usePaymentSheet();
   const [rating, setRating] = useState(b.review?.rating ?? 0);
   const [comment, setComment] = useState(b.review?.comment ?? '');
   const [saved, setSaved] = useState(!!b.review);
@@ -113,9 +137,15 @@ function AfterWash({ b, onChange }: { b: Booking; onChange: (b: Booking) => void
     setSaved(true);
   };
   const tip = async (cents: number) => {
-    const res = await api(`/bookings/${b.id}/tip`, { body: { amountCents: cents } });
-    onChange(res.booking);
-    Alert.alert('Thank you!', `Your ${money(cents)} tip goes straight to ${b.washer?.name ?? 'your washer'}.`);
+    try {
+      const res = await api(`/bookings/${b.id}/tip`, { body: { amountCents: cents } });
+      if (!(await pay(res.payment))) return;
+      // With Stripe the tip shows once the payment is confirmed by webhook.
+      setTimeout(() => api<Booking>(`/bookings/${b.id}`).then(onChange), res.payment ? 1500 : 0);
+      Alert.alert('Thank you!', `Your ${money(cents)} tip goes straight to ${b.washer?.name ?? 'your washer'}.`);
+    } catch (e: any) {
+      Alert.alert('Tip not sent', e.message);
+    }
   };
 
   return (

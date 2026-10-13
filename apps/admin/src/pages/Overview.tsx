@@ -12,6 +12,7 @@ interface Stats {
   packages: { name: string; bookings: number; revenue_cents: number }[];
   quality: { avg_rating: number | null; reviews: number; low_ratings: number };
   customers: { customers: number; repeat_customers: number };
+  members: { active: number; mrr_cents: number };
 }
 
 const axis = { stroke: 'var(--text-2)', fontSize: 12, tickLine: false, axisLine: { stroke: 'var(--border)' } };
@@ -40,6 +41,7 @@ export default function Overview() {
         <Stat label="Live jobs" value={String(s.totals.active)} sub={`${s.totals.pending} waiting for a washer`} />
         <Stat label="Average rating" value={s.quality.avg_rating ? `★ ${s.quality.avg_rating}` : '–'} sub={`${plural(s.quality.reviews, "review", "reviews")} · ${s.quality.low_ratings} at 1–2★`} />
         <Stat label="Repeat customers" value={`${repeatRate}%`} sub={`${s.customers.repeat_customers} of ${s.customers.customers}`} />
+        <Stat label="Membership revenue" value={money(s.members.mrr_cents)} sub={`${plural(s.members.active, 'member', 'members')} · per month`} />
       </div>
 
       <div className="grid2">
